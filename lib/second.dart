@@ -27,16 +27,23 @@ class SecondScreen extends StatelessWidget {
                   itemCount: bluetoothProvider.devices.length,
                   itemBuilder: (context, index) {
                     return ListTile(
-                      title: Text(bluetoothProvider.devices[index].id),
+                      title: Text(bluetoothProvider.devices[index].name),
                       subtitle: Text(bluetoothProvider.devices[index].id),
-                      onTap: () {
-                        bluetoothProvider
+                      onTap: () async {
+                        Future<void> connectionFuture = bluetoothProvider
                             .connectToDevice(bluetoothProvider.devices[index]);
+                        await connectionFuture;
                         if (bluetoothProvider.connectedSafety) {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                                 builder: (context) => FirstScreen()),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Connection failed'),
+                            ),
                           );
                         }
                       },

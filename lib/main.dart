@@ -10,6 +10,7 @@ class BluetoothProvider extends ChangeNotifier {
   // ReactiveBle instance
   final flutterReactiveBle = FlutterReactiveBle();
   String log = 'this is log';
+  List<String> logs = [];
 
   //　Scanning related
   List<DiscoveredDevice> devices = [];
@@ -18,8 +19,8 @@ class BluetoothProvider extends ChangeNotifier {
 
   // Connection related
   bool connectedSafety = false;
-  late Stream<ConnectionStateUpdate>? connection;
-  Stream<List<int>>? readData;
+  late StreamSubscription<ConnectionStateUpdate> connection;
+  StreamSubscription<List<int>>? readData;
 
   BluetoothProvider() {
     scanDevice();
@@ -36,9 +37,12 @@ class BluetoothProvider extends ChangeNotifier {
       }
     }
     log = 'Scanning...';
+
     if (scanStarted) {
       await scanStream.cancel();
     }
+    scanStarted = true;
+    notifyListeners();
     scanStream = flutterReactiveBle.scanForDevices(
       withServices: [],
     ).listen((device) {
@@ -54,27 +58,35 @@ class BluetoothProvider extends ChangeNotifier {
   }
 
   // Connect to the first device in the list
-  void connectToDevice(DiscoveredDevice device) async {
+  Future<void> connectToDevice(DiscoveredDevice device) async {
+    Completer<void> completer = Completer();
     log = 'Connecting to ${device.name}';
-    notifyListeners();
     if (scanStarted) {
       await scanStream.cancel();
       scanStarted = false;
+      notifyListeners();
     }
-    connection = flutterReactiveBle.connectToDevice(
-      id: device.id,
-    );
-    connection!.listen((connectionState) {
+    connection = flutterReactiveBle
+        .connectToDevice(
+            id: device.id, connectionTimeout: Duration(seconds: 10))
+        .listen((connectionState) {
       log = 'Connection state $connectionState';
       notifyListeners();
       if (connectionState.connectionState == DeviceConnectionState.connected) {
         log = 'Connected';
         connectedSafety = true;
-        notifyListeners();
         flutterReactiveBle.requestMtu(deviceId: device.id, mtu: 250);
+        notifyListeners();
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
         readCharacteristic(device);
       }
+    }, onError: (dynamic error) {
+      log = 'Error $error';
+      connectedSafety = false;
     });
+    return completer.future;
   }
 
   void readCharacteristic(DiscoveredDevice device) async {
@@ -82,19 +94,32 @@ class BluetoothProvider extends ChangeNotifier {
     notifyListeners();
     // ignore: non_constant_identifier_names
     final TxCharacteristic = QualifiedCharacteristic(
-        characteristicId: Uuid.parse(''),
-        serviceId: Uuid.parse(''),
+        characteristicId: Uuid.parse('6e400003-b5a3-f393-e0a9-e50e24dcca9e'),
+        serviceId: Uuid.parse('6e400001-b5a3-f393-e0a9-e50e24dcca9e'),
         deviceId: device.id);
     // ignore: unused_local_variable
     final readData = flutterReactiveBle
         .subscribeToCharacteristic(TxCharacteristic)
-        .listen(
-            (data) => log = '${DateTime.now()}: ${String.fromCharCodes(data)}',
-            onError: (dynamic error) {
+        .listen((data) {
+      log = '${DateTime.now()}: ${String.fromCharCodes(data)}';
+      notifyListeners();
+      logs.add(String.fromCharCodes(data));
+      notifyListeners();
+    }, onError: (dynamic error) {
       log = 'Error $error';
       connectedSafety = false;
       notifyListeners();
     });
+    notifyListeners();
+  }
+
+  disconnectToDevice() async {
+    log = 'Disconnecting';
+    notifyListeners();
+    await readData?.cancel();
+    await connection.cancel();
+    scanStarted = true;
+    connectedSafety = false;
     notifyListeners();
   }
 }
